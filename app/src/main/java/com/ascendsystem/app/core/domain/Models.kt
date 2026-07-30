@@ -61,6 +61,17 @@ interface QuestRepository {
     suspend fun delete(id: String)
 }
 
+interface RestrictionRepository {
+    suspend fun restrictions(): List<AppRestriction>
+    suspend fun upsert(restriction: AppRestriction)
+    suspend fun delete(packageName: String)
+}
+
+interface OverrideRepository {
+    suspend fun activate(request: OverrideRequest, activeQuestId: String?, nowMillis: Long)
+    suspend fun activeUntilMillis(): Long
+}
+
 interface AiProvider {
     suspend fun generateDailyPlan(context: UserContext): List<Quest>
     suspend fun respond(message: String, context: UserContext): String
