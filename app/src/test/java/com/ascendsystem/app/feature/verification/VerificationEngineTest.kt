@@ -37,13 +37,15 @@ class VerificationEngineTest {
     @Test fun `complete verification completes linked quest`() = runBlocking {
         val repository = FakeVerificationRepository()
         val questRepository = FakeQuestRepository()
+        val access = RecordingAccessController()
         val active = session(status = VerificationSessionStatus.ACTIVE)
         repository.create(active)
-        val result = CompleteVerificationUseCase(repository, questRepository)(
+        val result = CompleteVerificationUseCase(repository, questRepository, access)(
             active.id, VerificationResult.Success(.91f, mapOf("frames" to "42")), 500L
         )
         assertEquals(VerificationSessionStatus.COMPLETED, result.status)
         assertEquals(QuestStatus.COMPLETED, questRepository.quests().single().status)
+        assertTrue(access.unlocked)
     }
 
     @Test fun `failure stores reasons and retry policy`() = runBlocking {
@@ -89,6 +91,11 @@ class VerificationEngineTest {
     )
 }
 
+private class RecordingAccessController : AccessController {
+    var unlocked = false
+    override fun unlockAfterVerifiedQuest() { unlocked = true }
+}
+
 class CalibrationEngineTest {
     private fun fullFrame(confidence: Float = .9f): PoseFrame {
         val required = listOf(
@@ -127,6 +134,59 @@ class CalibrationEngineTest {
         val result = engine.reduce(CalibrationState(CalibrationStatus.CALIBRATING, 1_000, .5f), CalibrationInput(null, true, true, 2_000))
         assertEquals(CalibrationStatus.SEARCHING_FOR_BODY, result.status)
         assertNull(result.validSinceMillis)
+    }
+}
+
+class SquatRepCounterTest {
+    @Test fun `counts complete controlled squat`() {
+        val counter = SquatRepCounter(target = 1)
+        counter.update(frame(0, 170f))
+        counter.update(frame(300, 135f))
+        counter.update(frame(700, 90f))
+        counter.update(frame(1_000, 125f))
+        val result = counter.update(frame(1_300, 170f))
+        assertEquals(1, result.repetitions)
+        assertTrue(result.completed)
+    }
+
+    @Test fun `rejects shallow squat`() {
+        val counter = SquatRepCounter(target = 1)
+        counter.update(frame(0, 170f))
+        counter.update(frame(300, 135f))
+        val result = counter.update(frame(1_000, 170f))
+        assertEquals(0, result.repetitions)
+        assertFalse(result.completed)
+    }
+
+    @Test fun `rejects implausibly fast squat`() {
+        val counter = SquatRepCounter(target = 1)
+        counter.update(frame(0, 170f))
+        counter.update(frame(100, 130f))
+        counter.update(frame(200, 90f))
+        counter.update(frame(300, 125f))
+        val result = counter.update(frame(400, 170f))
+        assertEquals(0, result.repetitions)
+        assertEquals(SquatPhase.STANDING, result.phase)
+    }
+
+    private fun frame(time: Long, kneeAngle: Float): PoseFrame {
+        val radians = Math.toRadians(kneeAngle.toDouble())
+        fun points(prefix: String, x: Float): List<PosePoint> {
+            val side = if (prefix == "LEFT") listOf(
+                PoseLandmarkType.LEFT_HIP, PoseLandmarkType.LEFT_KNEE, PoseLandmarkType.LEFT_ANKLE
+            ) else listOf(
+                PoseLandmarkType.RIGHT_HIP, PoseLandmarkType.RIGHT_KNEE, PoseLandmarkType.RIGHT_ANKLE
+            )
+            return listOf(
+                PosePoint(side[0], x + kotlin.math.sin(radians).toFloat() * 100f, 400f + kotlin.math.cos(radians).toFloat() * 100f, 0f, .95f),
+                PosePoint(side[1], x, 400f, 0f, .95f),
+                PosePoint(side[2], x, 500f, 0f, .95f)
+            )
+        }
+        return PoseFrame(
+            time, points("LEFT", 400f) + points("RIGHT", 600f), .95f, true,
+            BodyOrientation.FRONT, 1000, 1100, 0
+        )
     }
 }
 
