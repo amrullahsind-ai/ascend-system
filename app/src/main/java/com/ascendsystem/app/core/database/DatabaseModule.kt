@@ -8,6 +8,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+import com.ascendsystem.app.feature.assessment.data.AssessmentDao
 import com.ascendsystem.app.feature.verification.data.VerificationDao
 
 @Module
