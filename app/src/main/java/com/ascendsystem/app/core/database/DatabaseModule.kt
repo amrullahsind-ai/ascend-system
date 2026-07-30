@@ -23,4 +23,5 @@ object DatabaseModule {
     @Provides fun questDao(db: AscendDatabase): QuestDao = db.questDao()
     @Provides fun assessmentDao(db: AscendDatabase): AssessmentDao = db.assessmentDao()
     @Provides fun verificationDao(db: AscendDatabase): VerificationDao = db.verificationDao()
+    @Provides fun appControlDao(db: AscendDatabase): AppControlDao = db.appControlDao()
 }
