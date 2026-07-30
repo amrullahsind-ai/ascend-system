@@ -69,7 +69,7 @@ jobs:
         uses: gradle/actions/wrapper-validation@v4
 
       - name: Run JVM unit tests
-        run: ./gradlew clean testConsumerDebugUnitTest testDedicatedDebugUnitTest --stacktrace
+        run: ./gradlew clean testConsumerDebugUnitTest testDedicatedDebugUnitTest --max-workers=1 --stacktrace
 
       - name: Run Android lint
         run: ./gradlew lintConsumerDebug lintDedicatedDebug --stacktrace
