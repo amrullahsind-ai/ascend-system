@@ -6,6 +6,14 @@ import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 import javax.inject.Inject
 
+interface AccessController {
+    fun unlockAfterVerifiedQuest()
+}
+
+object NoOpAccessController : AccessController {
+    override fun unlockAfterVerifiedQuest() = Unit
+}
+
 class StartVerificationUseCase @Inject constructor(private val repository: VerificationRepository) {
     suspend operator fun invoke(request: VerificationRequest): VerificationSession {
         val session = VerificationSession(
@@ -29,7 +37,8 @@ class UpdateVerificationProgressUseCase @Inject constructor(
 }
 class CompleteVerificationUseCase @Inject constructor(
     private val repository: VerificationRepository,
-    private val quests: QuestRepository
+    private val quests: QuestRepository,
+    private val accessController: AccessController = NoOpAccessController
 ) {
     suspend operator fun invoke(id: String, result: VerificationResult.Success, nowMillis: Long): VerificationSession {
         val current = requireNotNull(repository.get(id))
@@ -46,6 +55,7 @@ class CompleteVerificationUseCase @Inject constructor(
         quests.quests().firstOrNull { it.id == verifying.questId }?.let {
             quests.upsert(it.copy(status = QuestStatus.COMPLETED))
         }
+        accessController.unlockAfterVerifiedQuest()
         return completed
     }
 }
