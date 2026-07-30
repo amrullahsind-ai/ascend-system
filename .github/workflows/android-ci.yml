@@ -36,7 +36,10 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install required Android SDK packages
-        run: sdkmanager "platform-tools" "platforms;android-37" "build-tools;36.0.0"
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;36.0.0"
+          sdkmanager --list_installed
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
