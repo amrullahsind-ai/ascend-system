@@ -1,6 +1,16 @@
 package com.ascendsystem.app
 
 import android.os.Bundle
+import android.Manifest
+import android.app.AppOpsManager
+import android.content.Context
+import android.content.Intent
+import android.os.Process
+import android.provider.Settings
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -8,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -22,7 +33,11 @@ import com.ascendsystem.app.feature.assessment.StartFlow
 import com.ascendsystem.app.feature.assessment.StartupViewModel
 import com.ascendsystem.app.feature.assessment.domain.*
 import com.ascendsystem.app.feature.dashboard.DashboardViewModel
+import com.ascendsystem.app.feature.dashboard.QuestViewModel
+import com.ascendsystem.app.feature.dashboard.AppControlViewModel
 import com.ascendsystem.app.feature.verification.camera.CameraVerificationScreen
+import com.ascendsystem.app.service.restriction.RestrictionMonitorService
+import com.ascendsystem.app.service.scheduling.SleepProtocolScheduler
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -71,12 +86,14 @@ private fun AscendApp(startup: StartupViewModel = hiltViewModel()) {
         composable(Route.CONTRACT.value) { SystemContractScreen(nav) }
         composable(Route.DASHBOARD.value) { Dashboard(nav) }
         composable(Route.QUESTS.value) { QuestCrudScreen(nav) }
-        composable(Route.ALLOWLIST.value) { InfoScreen("APP ALLOWLIST", "Phone, emergency contacts, Maps, authenticator, banking, and health apps stay essential.", nav) }
-        composable(Route.SLEEP.value) { InfoScreen("SLEEP PROTOCOL", "22:30—05:00 · entertainment restricted · one 15-minute extension available.", nav) }
+        composable(Route.ALLOWLIST.value) { AppRestrictionScreen(nav) }
+        composable(Route.SLEEP.value) { SleepProtocolScreen(nav) }
         composable(Route.BLOCKING.value) { BlockingScreen(nav) }
         composable(Route.OVERRIDE.value) { OverrideScreen(nav) }
         composable(Route.SETTINGS.value) { InfoScreen("DEPLOYMENT MODES", "Consumer: best-effort. Guardian: consent + guardian approval. Dedicated: provisioning and Device Owner required.", nav) }
-        composable(Route.CAMERA_VERIFICATION.value) { CameraVerificationScreen(onClose = { nav.popBackStack() }) }
+        composable("${Route.CAMERA_VERIFICATION.value}/{questId}/{targetReps}") {
+            CameraVerificationScreen(onClose = { nav.popBackStack() })
+        }
         if (BuildConfig.DEBUG) {
             composable(Route.VERIFICATION_DEBUG.value) { CameraVerificationScreen(onClose = { nav.popBackStack() }, debugMode = true) }
         }
@@ -163,8 +180,8 @@ private fun Dashboard(nav: NavHostController, viewModel: DashboardViewModel = hi
         }
     }
     ProtocolRuleCard("Progression", "Awaiting persisted XP profile")
-    ProtocolRuleCard("Restrictions", "No active device enforcement")
-    ProtocolRuleCard("Sleep protocol", "Configured after protocol activation")
+    ProtocolRuleCard("Restrictions", "Consumer Strict tersedia melalui Usage Access")
+    ProtocolRuleCard("Sleep protocol", "Jadwal otomatis dapat diaktifkan")
     PrimarySystemButton("Quest database") { nav.navigate(Route.QUESTS.value) }
     SecondarySystemButton("App allowlist") { nav.navigate(Route.ALLOWLIST.value) }
     SecondarySystemButton("Sleep protocol") { nav.navigate(Route.SLEEP.value) }
@@ -178,23 +195,38 @@ private fun NavButton(label: String, action: () -> Unit) =
     Button(onClick = action, modifier = Modifier.fillMaxWidth()) { Text(label) }
 
 @Composable
-private fun QuestCrudScreen(nav: NavHostController) = Screen("QUEST CRUD") {
-    var quests by remember { mutableStateOf(listOf("Deep focus · 25 min", "Room reset · 10 min")) }
+private fun QuestCrudScreen(nav: NavHostController, viewModel: QuestViewModel = hiltViewModel()) = Screen("QUEST DATABASE") {
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var draft by remember { mutableStateOf("") }
+    var repetitions by remember { mutableIntStateOf(10) }
+    var delayMinutes by remember { mutableIntStateOf(5) }
     HoloPanel(Modifier.fillMaxWidth()) {
-        quests.forEachIndexed { index, quest ->
+        if (state.loading) CircularProgressIndicator()
+        if (state.quests.isEmpty() && !state.loading) Text("Belum ada quest tersimpan.")
+        state.quests.forEach { quest ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(quest, Modifier.weight(1f))
-                TextButton(onClick = { quests = quests.filterIndexed { i, _ -> i != index } }) { Text("DELETE") }
+                Column(Modifier.weight(1f)) {
+                    Text(quest.title)
+                    Text("${quest.targetValue} repetisi · ${quest.status}", color = AscendColors.Muted)
+                }
+                TextButton(onClick = {
+                    nav.navigate("${Route.CAMERA_VERIFICATION.value}/${quest.id}/${quest.targetValue}")
+                }) { Text("MULAI") }
+                TextButton(onClick = { viewModel.delete(quest) }) { Text("DELETE") }
             }
         }
     }
-    OutlinedTextField(draft, { draft = it }, label = { Text("New quest") }, modifier = Modifier.fillMaxWidth())
+    state.error?.let { SystemAlertCard("Quest error", it, true) }
+    OutlinedTextField(draft, { draft = it }, label = { Text("Nama quest squat") }, modifier = Modifier.fillMaxWidth())
+    Text("Target repetisi: $repetitions")
+    Slider(repetitions.toFloat(), { repetitions = it.toInt() }, valueRange = 1f..50f, steps = 48)
+    Text("Aktif dalam: $delayMinutes menit")
+    Slider(delayMinutes.toFloat(), { delayMinutes = it.toInt() }, valueRange = 1f..60f, steps = 58)
     Button(
-        onClick = { quests = quests + draft; draft = "" },
+        onClick = { viewModel.createSquatQuest(draft, repetitions, delayMinutes); draft = "" },
         enabled = draft.isNotBlank(), modifier = Modifier.fillMaxWidth()
-    ) { Text("CREATE QUEST") }
-    Text("UI uses local preview state; the production repository contract and Room DAO are included.")
+    ) { Text("SIMPAN & JADWALKAN") }
+    Text("Quest disimpan di Room dan alarm Android dijadwalkan walaupun aplikasi ditutup.")
     OutlinedButton(onClick = { nav.popBackStack() }) { Text("BACK") }
 }
 
@@ -213,7 +245,10 @@ private fun BlockingScreen(nav: NavHostController) = Screen("ACCESS RESTRICTED")
 }
 
 @Composable
-private fun OverrideScreen(nav: NavHostController) = Screen("EMERGENCY OVERRIDE") {
+private fun OverrideScreen(
+    nav: NavHostController,
+    viewModel: AppControlViewModel = hiltViewModel()
+) = Screen("EMERGENCY OVERRIDE") {
     var note by remember { mutableStateOf("") }
     var duration by remember { mutableIntStateOf(5) }
     Text("Override is always available and will be recorded locally.")
@@ -223,13 +258,126 @@ private fun OverrideScreen(nav: NavHostController) = Screen("EMERGENCY OVERRIDE"
             FilterChip(selected = duration == value, onClick = { duration = value }, label = { Text("$value min") })
         }
     }
-    Button(onClick = { nav.navigate(Route.DASHBOARD.value) { popUpTo(Route.DASHBOARD.value) { inclusive = true } } },
+    Button(onClick = {
+        viewModel.activateOverride(note, duration) {
+            nav.navigate(Route.DASHBOARD.value) { popUpTo(Route.DASHBOARD.value) { inclusive = true } }
+        }
+    },
         enabled = note.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("ACTIVATE $duration MIN") }
+}
+
+@Composable
+private fun AppRestrictionScreen(
+    nav: NavHostController,
+    viewModel: AppControlViewModel = hiltViewModel()
+) = Screen("STRICT APP CONTROL") {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var packageName by remember { mutableStateOf("") }
+    var displayName by remember { mutableStateOf("") }
+    var usageGranted by remember { mutableStateOf(context.hasUsageAccess()) }
+    var notificationGranted by remember {
+        mutableStateOf(
+            android.os.Build.VERSION.SDK_INT < 33 ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        notificationGranted = it
+    }
+
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val listener = object : androidx.lifecycle.DefaultLifecycleObserver {
+            override fun onResume(owner: androidx.lifecycle.LifecycleOwner) {
+                usageGranted = context.hasUsageAccess()
+            }
+        }
+        (context as? androidx.activity.ComponentActivity)?.lifecycle?.addObserver(listener)
+        onDispose { (context as? androidx.activity.ComponentActivity)?.lifecycle?.removeObserver(listener) }
+    }
+
+    SystemStatusIndicator(if (usageGranted) "Usage Access aktif" else "Usage Access belum aktif", usageGranted)
+    SystemStatusIndicator(if (notificationGranted) "Notifikasi aktif" else "Notifikasi belum aktif", notificationGranted)
+    SafetyNoticeCard("Consumer Strict hanya memblokir aplikasi yang kamu pilih. Phone dan aplikasi darurat jangan dimasukkan.")
+    if (!usageGranted) {
+        PrimarySystemButton("Buka Usage Access") {
+            context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        }
+    }
+    if (!notificationGranted && android.os.Build.VERSION.SDK_INT >= 33) {
+        SecondarySystemButton("Izinkan notifikasi quest") {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+    state.restrictions.forEach { app ->
+        SystemPanel(Modifier.fillMaxWidth()) {
+            Text(app.displayName, color = AscendColors.Text)
+            Text(app.packageName, color = AscendColors.Muted)
+            Text(if (app.isEssential) "ESSENTIAL ALLOWLIST" else "RESTRICTED", color = if (app.isEssential) AscendColors.Success else AscendColors.Amber)
+            TextButton(onClick = { viewModel.delete(app.packageName) }) { Text("HAPUS") }
+        }
+    }
+    OutlinedTextField(packageName, { packageName = it }, label = { Text("Package aplikasi") }, modifier = Modifier.fillMaxWidth())
+    OutlinedTextField(displayName, { displayName = it }, label = { Text("Nama tampilan") }, modifier = Modifier.fillMaxWidth())
+    SecondarySystemButton("Tambah ke daftar pembatasan") {
+        viewModel.add(packageName, displayName, false)
+        packageName = ""; displayName = ""
+    }
+    SecondarySystemButton("Tambah ke essential allowlist") {
+        viewModel.add(packageName, displayName, true)
+        packageName = ""; displayName = ""
+    }
+    if (state.installedApps.isNotEmpty()) {
+        Text("APLIKASI TERPASANG", color = AscendColors.Cyan)
+        state.installedApps.forEach { app ->
+            SystemPanel(Modifier.fillMaxWidth()) {
+                Text(app.displayName, color = AscendColors.Text)
+                Text(app.packageName, color = AscendColors.Muted)
+                Row(horizontalArrangement = Arrangement.spacedBy(AscendSpacing.sm)) {
+                    TextButton(onClick = { viewModel.add(app.packageName, app.displayName, false) }) { Text("BATASI") }
+                    TextButton(onClick = { viewModel.add(app.packageName, app.displayName, true) }) { Text("ESSENTIAL") }
+                }
+            }
+        }
+    }
+    state.message?.let { SystemAlertCard("App control", it, true) }
+    PrimarySystemButton("Aktifkan Consumer Strict") {
+        if (context.hasUsageAccess()) RestrictionMonitorService.start(context)
+        else context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+    }
+    SecondarySystemButton("Matikan pemantauan") { RestrictionMonitorService.stop(context) }
+    OutlinedButton(onClick = { nav.popBackStack() }) { Text("BACK") }
 }
 
 @Composable
 private fun InfoScreen(title: String, body: String, nav: NavHostController) = Screen(title) {
     HoloPanel(Modifier.fillMaxWidth()) { Text(body) }
+    OutlinedButton(onClick = { nav.popBackStack() }) { Text("BACK") }
+}
+
+@Composable
+private fun SleepProtocolScreen(nav: NavHostController) = Screen("SLEEP PROTOCOL") {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val initial = remember { SleepProtocolScheduler.settings(context) }
+    var lockMinute by rememberSaveable { mutableIntStateOf(initial.first) }
+    var wakeMinute by rememberSaveable { mutableIntStateOf(initial.second) }
+    var enabled by rememberSaveable { mutableStateOf(initial.third) }
+    var saved by remember { mutableStateOf(false) }
+
+    SystemStatusIndicator(if (enabled) "Sleep protocol aktif" else "Sleep protocol nonaktif", enabled)
+    Text("Waktu pembatasan: ${lockMinute.asTime()}")
+    Slider(lockMinute.toFloat(), { lockMinute = it.toInt(); saved = false }, valueRange = 18 * 60f..23 * 60f + 59f)
+    Text("Waktu bangun: ${wakeMinute.asTime()}")
+    Slider(wakeMinute.toFloat(), { wakeMinute = it.toInt(); saved = false }, valueRange = 4 * 60f..10 * 60f)
+    Row(horizontalArrangement = Arrangement.spacedBy(AscendSpacing.sm)) {
+        FilterChip(enabled, { enabled = true; saved = false }, label = { Text("AKTIF") })
+        FilterChip(!enabled, { enabled = false; saved = false }, label = { Text("NONAKTIF") })
+    }
+    SafetyNoticeCard("Peringatan muncul 60 menit sebelum waktu tidur. Saat lock aktif, daftar aplikasi pilihan dibatasi; Emergency Override tetap tersedia.")
+    PrimarySystemButton(if (saved) "Tersimpan" else "Simpan jadwal") {
+        SleepProtocolScheduler.configure(context, lockMinute, wakeMinute, enabled)
+        saved = true
+    }
     OutlinedButton(onClick = { nav.popBackStack() }) { Text("BACK") }
 }
 
@@ -367,3 +515,12 @@ private fun SystemAlertCard(title: String, body: String, critical: Boolean) = Sy
 }
 
 private fun Int.asTime() = "%02d:%02d".format(this / 60, this % 60)
+
+private fun Context.hasUsageAccess(): Boolean {
+    val appOps = getSystemService(AppOpsManager::class.java)
+    return appOps.checkOpNoThrow(
+        AppOpsManager.OPSTR_GET_USAGE_STATS,
+        Process.myUid(),
+        packageName
+    ) == AppOpsManager.MODE_ALLOWED
+}
