@@ -144,9 +144,13 @@ class BootReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
-                quests.quests()
+                val persisted = quests.quests()
+                persisted
                     .filter { it.status == QuestStatus.SCHEDULED && (it.scheduledAtMillis ?: 0L) > System.currentTimeMillis() }
                     .forEach { scheduler.schedule(it) }
+                if (persisted.any { it.status in setOf(QuestStatus.ACTIVE, QuestStatus.VERIFYING) }) {
+                    RestrictionMonitorService.start(context)
+                }
             }
             pending.finish()
         }
