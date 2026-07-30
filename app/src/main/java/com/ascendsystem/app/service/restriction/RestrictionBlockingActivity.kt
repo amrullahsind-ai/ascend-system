@@ -3,6 +3,7 @@ package com.ascendsystem.app.service.restriction
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.layout.*
@@ -21,6 +22,11 @@ class RestrictionBlockingActivity : ComponentActivity() {
     @Inject lateinit var overrides: OverrideRepository
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                moveTaskToBack(true)
+            }
+        })
         val blockedPackage = intent.getStringExtra(EXTRA_PACKAGE).orEmpty()
         setContent {
             AscendTheme {
@@ -41,10 +47,6 @@ class RestrictionBlockingActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    override fun onBackPressed() {
-        moveTaskToBack(true)
     }
 
     private fun openAscend() {
