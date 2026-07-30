@@ -29,6 +29,7 @@ data class CameraVerificationUiState(
     val fullBodyVisible: Boolean = false,
     val lowLight: Boolean = false,
     val calibration: CalibrationState = CalibrationState(),
+    val squat: SquatResult = SquatResult(target = 10),
     val verificationSession: VerificationSession? = null,
     val processingMillis: Long = 0,
     val reducedMotion: Boolean = false
@@ -39,10 +40,12 @@ class CameraVerificationViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val repository: VerificationRepository,
     private val startVerification: StartVerificationUseCase,
+    private val completeVerification: CompleteVerificationUseCase,
     private val failVerification: FailVerificationUseCase,
     private val cancelVerification: CancelVerificationUseCase
 ) : ViewModel() {
     private val calibrationEngine = CalibrationEngine()
+    private val squatCounter = SquatRepCounter(savedStateHandle.get<Int>("targetReps") ?: 10)
     private val _state = MutableStateFlow(CameraVerificationUiState())
     val state = _state.asStateFlow()
     private var lastPersistedAt = 0L
@@ -114,9 +117,20 @@ class CameraVerificationViewModel @Inject constructor(
         }
         val sessionStatus = if (calibration.status == CalibrationStatus.READY) VerificationSessionStatus.ACTIVE else VerificationSessionStatus.CALIBRATING
         transitionSession(sessionStatus, calibration.progress, analysis.frame?.overallConfidence)
+        if (calibration.status == CalibrationStatus.READY && analysis.frame != null) {
+            val squat = squatCounter.update(analysis.frame)
+            _state.update { it.copy(squat = squat) }
+            transitionSession(
+                VerificationSessionStatus.ACTIVE,
+                squat.repetitions.toFloat() / squat.target,
+                squat.confidence
+            )
+            if (squat.completed) completeSquat()
+        }
     }
 
     fun onBackgrounded() {
+        squatCounter.reset()
         val status = _state.value.verificationSession?.status
         if (status in setOf(VerificationSessionStatus.ACTIVE, VerificationSessionStatus.CALIBRATING)) {
             statusBeforePause = status
@@ -164,7 +178,7 @@ class CameraVerificationViewModel @Inject constructor(
                 VerificationRequest(
                     questId = savedStateHandle["questId"] ?: "debug-camera-preview",
                     type = VerificationType.CAMERA_POSE,
-                    target = VerificationTarget.BooleanTarget(),
+                    target = VerificationTarget.Count(savedStateHandle.get<Int>("targetReps") ?: 10),
                     safetyLevel = SafetyLevel.LOW,
                     createdAtMillis = System.currentTimeMillis()
                 )
@@ -174,13 +188,55 @@ class CameraVerificationViewModel @Inject constructor(
         }
     }
 
+    private fun completeSquat() {
+        val session = _state.value.verificationSession ?: return
+        if (session.status != VerificationSessionStatus.ACTIVE) return
+        viewModelScope.launch {
+            runCatching {
+                completeVerification(
+                    session.id,
+                    VerificationResult.Success(
+                        confidence = _state.value.squat.confidence,
+                        metrics = mapOf(
+                            "exercise" to "squat",
+                            "validRepetitions" to _state.value.squat.repetitions.toString()
+                        )
+                    ),
+                    System.currentTimeMillis()
+                )
+            }.onSuccess { completed ->
+                _state.update { it.copy(verificationSession = completed, stage = CameraSessionStage.READY) }
+            }.onFailure { error ->
+                _state.update { it.copy(cameraError = error.message ?: "Gagal menyelesaikan verifikasi") }
+            }
+        }
+    }
+
     private fun transitionSession(
         status: VerificationSessionStatus,
         progress: Float = _state.value.verificationSession?.progress ?: 0f,
         confidence: Float? = _state.value.verificationSession?.confidence
     ) {
         val current = _state.value.verificationSession ?: return
-        if (current.status == status || current.status in setOf(VerificationSessionStatus.COMPLETED, VerificationSessionStatus.CANCELLED)) return
+        if (current.status in setOf(VerificationSessionStatus.COMPLETED, VerificationSessionStatus.CANCELLED)) return
+        if (current.status == status) {
+            val now = System.currentTimeMillis()
+            val updated = current.copy(
+                progress = progress.coerceIn(0f, 1f),
+                confidence = confidence?.coerceIn(0f, 1f),
+                metrics = current.metrics + mapOf(
+                    "cameraStage" to _state.value.stage.name,
+                    "processingMillis" to _state.value.processingMillis.toString(),
+                    "validRepetitions" to _state.value.squat.repetitions.toString()
+                )
+            )
+            _state.update { it.copy(verificationSession = updated) }
+            if (now - lastPersistedAt >= 500) {
+                lastPersistedAt = now
+                viewModelScope.launch { repository.update(updated) }
+            }
+            return
+        }
         val machine = VerificationSessionStateMachine()
         if (!machine.canTransition(current.status, status)) return
         val now = System.currentTimeMillis()
