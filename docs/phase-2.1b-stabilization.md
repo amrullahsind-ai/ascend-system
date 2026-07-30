@@ -88,3 +88,19 @@ debug APK assembly. Successful runs upload the consumer APK, dedicated APK, and
 verification reports as separate artifacts. Runtime camera and migration
 instrumentation testing still requires an Android device or emulator and is not
 claimed by this workflow.
+
+The GitHub runner SDK repository publishes API 37 under the package ID
+`platforms;android-37.0` (rather than `platforms;android-37`). The workflow uses
+that exact package ID and prints the installed package list before Gradle runs.
+
+The workflow also validates the checked-out repository structure before setting
+up the toolchain. In particular, `app/build.gradle.kts` and
+`app/src/main/AndroidManifest.xml` must exist at the repository root. This makes
+an incomplete web upload fail with an explicit message instead of a later,
+misleading Gradle configuration error.
+
+The first complete GitHub checkout reached KSP for both debug flavors and exposed
+a missing source import in `DatabaseModule.kt`: the provider returned
+`AssessmentDao`, but the DAO's package was not imported. The explicit
+`com.ascendsystem.app.feature.assessment.data.AssessmentDao` import has been
+added.
