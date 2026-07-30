@@ -27,7 +27,7 @@ class MlKitPoseAnalyzer(
         PoseDetectorOptions.Builder().setDetectorMode(PoseDetectorOptions.STREAM_MODE).build()
     )
 
-    @OptIn(ExperimentalGetImage::class)
+    @ExperimentalGetImage
     override fun analyze(imageProxy: ImageProxy) {
         if (!processing.compareAndSet(false, true)) {
             imageProxy.close()
