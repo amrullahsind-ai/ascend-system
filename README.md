@@ -9,7 +9,7 @@ An Android productivity quest foundation with deterministic rules, persistent lo
 - rule, safety, schedule, state-machine, and progression engines;
 - Room schema and repository boundaries;
 - allowlist, usage-limit, sleep, blocking, and emergency-override models/screens;
-- local fake AI provider;
+- local deterministic planning provider (no cloud required);
 - consumer and dedicated build flavors;
 - unit tests for rule/state/schedule/progression logic.
 
@@ -58,4 +58,4 @@ The current single module uses requested package boundaries under `com.ascendsys
 
 ## Known Phase 1 gap
 
-The Quest CRUD screen demonstrates interaction with local Compose state. A Hilt-bound Room repository is included, but wiring that screen through a ViewModel is the next small integration task before Phase 2.
+Quest CRUD is connected to Room through a Hilt ViewModel and schedules Android alarms. The consumer flavor supports user-configured best-effort app blocking through Usage Access, persisted Emergency Override, automatic sleep scheduling, and live squat verification. Dedicated Device Owner provisioning remains a separate deployment workflow.
