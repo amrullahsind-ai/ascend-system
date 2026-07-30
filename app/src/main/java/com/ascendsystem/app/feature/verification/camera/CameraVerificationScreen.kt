@@ -93,7 +93,7 @@ fun CameraVerificationScreen(
 
     AscendBackground {
         Column(Modifier.fillMaxSize().padding(AscendSpacing.md), verticalArrangement = Arrangement.spacedBy(AscendSpacing.sm)) {
-            SystemHeader("Verification engine", "Camera pose framework", stageLabel(state))
+            SystemHeader("Verification engine", "Squat verification", stageLabel(state))
             when (state.permission) {
                 CameraPermissionState.GRANTED -> CameraContent(state, viewModel, closeSession)
                 CameraPermissionState.PERMANENTLY_DENIED -> PermissionPanel(
@@ -137,6 +137,16 @@ private fun ColumnScope.CameraContent(
         }
     }
     LinearProgressIndicator({ state.calibration.progress }, Modifier.fillMaxWidth(), color = AscendColors.Cyan)
+    SystemPanel(Modifier.fillMaxWidth(), accent = if (state.squat.completed) AscendColors.Success else AscendColors.Cyan) {
+        Text("SQUAT ${state.squat.repetitions} / ${state.squat.target}", color = if (state.squat.completed) AscendColors.Success else AscendColors.Cyan)
+        Text(state.squat.feedback, color = AscendColors.Text)
+        state.squat.kneeAngle?.let { Text("Sudut lutut ${it.toInt()}° · ${state.squat.phase.name}", color = AscendColors.Muted) }
+        LinearProgressIndicator(
+            { state.squat.repetitions.toFloat() / state.squat.target },
+            Modifier.fillMaxWidth(),
+            color = AscendColors.Success
+        )
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AscendSpacing.sm)) {
         StatusChip("POSE", state.posePresent)
         StatusChip("FULL BODY", state.fullBodyVisible)
