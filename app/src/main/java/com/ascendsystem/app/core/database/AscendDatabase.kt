@@ -70,6 +70,22 @@ interface QuestDao {
     suspend fun delete(id: String)
 }
 
+@Dao
+interface AppControlDao {
+    @Query("SELECT * FROM app_restrictions ORDER BY displayName")
+    suspend fun restrictions(): List<AppRestrictionEntity>
+    @Query("SELECT * FROM app_restrictions WHERE enabled = 1 AND isEssential = 0")
+    suspend fun enabledRestrictions(): List<AppRestrictionEntity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertRestriction(entity: AppRestrictionEntity)
+    @Query("DELETE FROM app_restrictions WHERE packageName = :packageName")
+    suspend fun deleteRestriction(packageName: String)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOverride(entity: OverrideLogEntity)
+    @Query("SELECT * FROM override_logs ORDER BY timestampEpochMs DESC LIMIT 1")
+    suspend fun latestOverride(): OverrideLogEntity?
+}
+
 @Database(
     entities = [
         QuestEntity::class, AppRestrictionEntity::class, OverrideLogEntity::class, SystemStateEntity::class,
@@ -83,6 +99,7 @@ abstract class AscendDatabase : RoomDatabase() {
     abstract fun questDao(): QuestDao
     abstract fun assessmentDao(): AssessmentDao
     abstract fun verificationDao(): VerificationDao
+    abstract fun appControlDao(): AppControlDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
